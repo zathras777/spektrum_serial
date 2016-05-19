@@ -19,6 +19,7 @@ class SpektrumFrame(object):
         self.channel_values = {}
         self.highest_channel = 0
         self.raw = data
+        self.final_values = {}
 
     def add_frame(self, frame):
         self.raw.extend(frame)
@@ -38,12 +39,6 @@ class SpektrumFrame(object):
     def tx_number(self):
         return self.tx_data >> 2
 
-    def upper_3(self):
-        return (self.tx_data & 0xe0) >> 5
-
-    def lower_2(self):
-        return (self.tx_data & 0x0c) >> 2
-
     def decode_channels(self):
         for n in range(0, len(self.channel_data) - 1, 2):
             if self.channel_data[n] == 0xff:
@@ -58,8 +53,15 @@ class SpektrumFrame(object):
                 val &= 0x3ff
             if chan > self.highest_channel:
                 self.highest_channel = chan
-            #print("f = {}, chan = {}, val = {}".format(f, chan, val))
             self.channel_values[chan] = val
+
+        if self.channel_bits == 10:
+            for n in range(0, self.highest_channel + 1, 2):
+                chan = 0 if n == 0 else n / 2
+                if self.channel_values.get(n, 0) == 0:
+                    self.final_values[chan] = 1024 + self.channel_values.get(n + 1, 0)
+                else:
+                    self.final_values[chan] = self.channel_values.get(n, 0)
 
     def is_complete(self):
         return len(self.channel_data) == self.frames_required * 14
@@ -71,24 +73,28 @@ Tansmitter data byte: 0x{:02x}  {}
 Bits per channel:     {}
 Frames Required:      {}
 Highest Channel:      {}
-  TX Number:          {}
-  Upper 3 buts        0x{:02x}
-  Lower 2 bits        0x{:02x}\n\n""".format(self.dropped,
-                                         self.tx_data,
-                                         bin(self.tx_data)[2:],
-                                         self.channel_bits,
-                                         self.frames_required,
-                                         self.highest_channel,
-                                         self.tx_number,
-                                         self.upper_3(),
-                                         self.lower_2())
+  TX Number:          {}""".format(self.dropped,
+                                   self.tx_data,
+                                   bin(self.tx_data)[2:],
+                                   self.channel_bits,
+                                   self.frames_required,
+                                   self.highest_channel,
+                                   self.tx_number)
 
     def channel_value_string(self):
         chans = range(self.highest_channel + 1)
-        title = "".join(["  {:2d} ".format(x) for x in chans])
-        title += "\n" + "".join(["---- " for x in chans])
-        title += "\n" + "".join(["{:4d} ".format(self.channel_values.get(x, 0)) for x in chans])
-        return title
+        lines = 4
+        title = "      " + " ".join(["  {:2d}".format(x) for x in chans]) + "\n"
+        title += "      " + " ".join(["----" for x in chans]) + "\nRcvr  "
+        title += " ".join(["{:4d}".format(self.channel_values.get(x, 0)) for x in chans])
+        title += "\n"
+        if self.channel_bits == 10:
+            chans2 = range(len(self.final_values))    
+            lines = 6
+            title += "      " + " ".join(["----" for x in chans2]) + "\nCalc  "
+            title += " ".join(["{:4d}".format(self.final_values.get(x, 0)) for x in chans2])            
+            title += "\n"
+        return '\033[{}A'.format(lines) + title
 
     def raw_bytes(self):
         s = "  "
@@ -182,8 +188,8 @@ class SpektrumReader(object):
         if self.spektrum is None:
             return
         if self.total_frames <= 2:
-            print("\n{}\n".format(self.spektrum.summary()))
-        print("\033[F\033[F\033[F\033[F")        
+            print("\n{}\n\n\n\n\n\n\n".format(self.spektrum.summary()))
+
         print(self.spektrum.channel_value_string())
 
 
@@ -192,8 +198,6 @@ class SerialReader(SpektrumReader):
         SpektrumReader.__init__(self, serial, output)
    
     def read_loop(self, summary=False):
-        total_frames = 0
-
         print("Waiting for data to be available...")
         try:
             while self.input.inWaiting() == 0:
@@ -220,7 +224,6 @@ class SerialReader(SpektrumReader):
                 if summary:
                     return
                         
-                total_frames += sf.frames_required
                 last = time()
             except KeyboardInterrupt:
                 break
