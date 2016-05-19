@@ -31,8 +31,8 @@ class SpektrumFrame(object):
 
     @property
     def frames_required(self):
-        if self.channel_bits == 11:
-            return self.tx_data & 0x03
+        # Are the bottom 2 bits really used for the frames required?       
+        # return self.tx_data & 0x03
         return 2
 
     @property
@@ -170,7 +170,6 @@ class SpektrumReader(object):
             if bytes is None:
                 break
             self.spektrum.add_frame(bytes)
-
         if not self.spektrum.is_complete():
             return False
         self.spektrum.decode_channels()
